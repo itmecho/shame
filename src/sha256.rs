@@ -200,7 +200,7 @@ impl crate::Hasher for Sha256 {
             let mut g = h6;
             let mut h = h7;
 
-            for (idx, word) in w.into_iter().enumerate() {
+            for (idx, word) in w.iter().enumerate() {
                 let sum1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
                 let choice = (e & f) ^ ((!e) & g);
                 let sum0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
@@ -210,7 +210,7 @@ impl crate::Hasher for Sha256 {
                     .wrapping_add(sum1)
                     .wrapping_add(choice)
                     .wrapping_add(K[idx]) //todo k consts
-                    .wrapping_add(word);
+                    .wrapping_add(*word);
 
                 let tmp2 = sum0.wrapping_add(majority);
 
