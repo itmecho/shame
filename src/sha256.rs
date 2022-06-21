@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 const K: [u32; 64] = [
     0b01000010100010100010111110011000,
     0b01110001001101110100010010010001,
@@ -163,8 +165,11 @@ impl crate::Hasher for Sha256 {
 
         let blocks = MessageBlocks::new(input);
 
+        let mut first_block = 0;
+        let mut longest_block = 0;
+
         for block in blocks {
-            let _ = block;
+            let t = Instant::now();
             let mut w = [0u32; 64];
             for (i, word) in block.chunks(4).enumerate() {
                 let padded_word = match *word {
@@ -232,7 +237,18 @@ impl crate::Hasher for Sha256 {
             h5 = h5.wrapping_add(f);
             h6 = h6.wrapping_add(g);
             h7 = h7.wrapping_add(h);
+
+            let e = t.elapsed().as_nanos();
+            if first_block == 0 {
+                first_block = e;
+            }
+            if e > longest_block {
+                longest_block = e;
+            }
         }
+
+        println!("first block took {}ns", first_block);
+        println!("longest block took {}ns", longest_block);
 
         format!(
             "{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}",
