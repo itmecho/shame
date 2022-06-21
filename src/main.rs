@@ -1,5 +1,3 @@
-mod sha256;
-
 use std::{
     env::args,
     error::Error,
@@ -7,6 +5,8 @@ use std::{
     io::{self, Read},
     process::exit,
 };
+
+use shame::{sha256, Hasher};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let cfg = parse_args(args().skip(1));
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         exit(1)
     }
 
-    let data = match cfg.filename {
+    let data = match cfg.filename.as_ref() {
         Some(fname) => Vec::from(fs::read(fname)?),
         None => {
             let mut buf = vec![];
@@ -26,9 +26,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
-    match cfg.mode {
-        Mode::SHA256 => sha256::generate_hash(&data),
+    let hasher: Box<dyn Hasher> = match cfg.mode {
+        Mode::SHA256 => Box::new(sha256::Sha256::new()),
     };
+
+    let hash = hasher.generate_hash(data);
+
+    println!("{}\t{}", hash, cfg.filename.unwrap_or("-".to_owned()),);
 
     Ok(())
 }
