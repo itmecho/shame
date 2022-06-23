@@ -71,8 +71,8 @@ const BLOCK_SIZE: usize = 64;
 
 struct MessageBlocks {
     data: Vec<u8>,
+    data_len: usize,
     cur: usize,
-    more: bool,
 }
 
 impl MessageBlocks {
@@ -97,54 +97,36 @@ impl MessageBlocks {
         // Is be OK here?
         data_len_bits.to_be_bytes().map(|b| data.push(b));
 
-        let more = data.len() > 0;
-
-        Self { cur: 0, data, more }
+        Self {
+            cur: 0,
+            data_len: data.len(),
+            data,
+        }
     }
 }
 
 impl Iterator for MessageBlocks {
     type Item = [u8; 64];
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.more {
+        if self.cur == self.data_len {
             return None;
         }
 
-        let start = self.cur * BLOCK_SIZE;
-        let end = (self.cur + 1) * BLOCK_SIZE;
+        let data = self.data[self.cur..(self.cur + BLOCK_SIZE)]
+            .try_into()
+            .unwrap();
 
-        if end >= self.data.len() {
-            self.more = false;
-        }
+        self.cur += BLOCK_SIZE;
 
-        self.cur += 1;
-
-        Some(
-            self.data[start..end]
-                .try_into()
-                .expect("block was not 64 bytes long"),
-        )
+        Some(data)
     }
 }
 
-pub struct Sha256 {
-    initial_hashes: [u32; 8],
-}
+pub struct Sha256 {}
 
 impl Sha256 {
     pub fn new() -> Self {
-        Self {
-            initial_hashes: [
-                0b01101010000010011110011001100111,
-                0b10111011011001111010111010000101,
-                0b00111100011011101111001101110010,
-                0b10100101010011111111010100111010,
-                0b01010001000011100101001001111111,
-                0b10011011000001010110100010001100,
-                0b00011111100000111101100110101011,
-                0b01011011111000001100110100011001,
-            ],
-        }
+        Self {}
     }
 }
 
@@ -153,35 +135,25 @@ impl crate::Hasher for Sha256 {
     where
         Self: Sized,
     {
-        // Initialise hash values
-        let mut h0: u32 = self.initial_hashes[0];
-        let mut h1: u32 = self.initial_hashes[1];
-        let mut h2: u32 = self.initial_hashes[2];
-        let mut h3: u32 = self.initial_hashes[3];
-        let mut h4: u32 = self.initial_hashes[4];
-        let mut h5: u32 = self.initial_hashes[5];
-        let mut h6: u32 = self.initial_hashes[6];
-        let mut h7: u32 = self.initial_hashes[7];
+        let mut hashes: [u32; 8] = [
+            0b01101010000010011110011001100111,
+            0b10111011011001111010111010000101,
+            0b00111100011011101111001101110010,
+            0b10100101010011111111010100111010,
+            0b01010001000011100101001001111111,
+            0b10011011000001010110100010001100,
+            0b00011111100000111101100110101011,
+            0b01011011111000001100110100011001,
+        ];
 
         let blocks = MessageBlocks::new(input);
 
-        let mut first_block = 0;
-        let mut longest_block = 0;
-
         for block in blocks {
-            let t = Instant::now();
             let mut w = [0u32; 64];
-            for (i, word) in block.chunks(4).enumerate() {
-                let padded_word = match *word {
-                    [a, b, c, d] => [a, b, c, d],
-                    [a, b, c] => [a, b, c, 0],
-                    [a, b] => [a, b, 0, 0],
-                    [a] => [a, 0, 0, 0],
-                    _ => [0, 0, 0, 0],
-                };
-                w[i] = u32::from_be_bytes(padded_word);
+            for (i, word) in block.chunks_exact(4).enumerate() {
+                w[i] = u32::from_be_bytes(word.try_into().unwrap());
             }
-            for i in 16..=63 {
+            for i in 16..64 {
                 let a0_idx = i - 15;
                 let a0 =
                     (w[a0_idx].rotate_right(7)) ^ (w[a0_idx].rotate_right(18)) ^ (w[a0_idx] >> 3);
@@ -196,14 +168,14 @@ impl crate::Hasher for Sha256 {
                     .wrapping_add(a1);
             }
 
-            let mut a = h0;
-            let mut b = h1;
-            let mut c = h2;
-            let mut d = h3;
-            let mut e = h4;
-            let mut f = h5;
-            let mut g = h6;
-            let mut h = h7;
+            let mut a = hashes[0];
+            let mut b = hashes[1];
+            let mut c = hashes[2];
+            let mut d = hashes[3];
+            let mut e = hashes[4];
+            let mut f = hashes[5];
+            let mut g = hashes[6];
+            let mut h = hashes[7];
 
             for (idx, word) in w.iter().enumerate() {
                 let sum1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
@@ -229,30 +201,19 @@ impl crate::Hasher for Sha256 {
                 a = tmp1.wrapping_add(tmp2);
             }
 
-            h0 = h0.wrapping_add(a);
-            h1 = h1.wrapping_add(b);
-            h2 = h2.wrapping_add(c);
-            h3 = h3.wrapping_add(d);
-            h4 = h4.wrapping_add(e);
-            h5 = h5.wrapping_add(f);
-            h6 = h6.wrapping_add(g);
-            h7 = h7.wrapping_add(h);
-
-            let e = t.elapsed().as_nanos();
-            if first_block == 0 {
-                first_block = e;
-            }
-            if e > longest_block {
-                longest_block = e;
-            }
+            hashes[0] = hashes[0].wrapping_add(a);
+            hashes[1] = hashes[1].wrapping_add(b);
+            hashes[2] = hashes[2].wrapping_add(c);
+            hashes[3] = hashes[3].wrapping_add(d);
+            hashes[4] = hashes[4].wrapping_add(e);
+            hashes[5] = hashes[5].wrapping_add(f);
+            hashes[6] = hashes[6].wrapping_add(g);
+            hashes[7] = hashes[7].wrapping_add(h);
         }
-
-        println!("first block took {}ns", first_block);
-        println!("longest block took {}ns", longest_block);
 
         format!(
             "{:x}{:x}{:x}{:x}{:x}{:x}{:x}{:x}",
-            h0, h1, h2, h3, h4, h5, h6, h7
+            hashes[0], hashes[1], hashes[2], hashes[3], hashes[4], hashes[5], hashes[6], hashes[7]
         )
     }
 }
